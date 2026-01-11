@@ -1,0 +1,17 @@
+# Node
+node_modules/
+npm-debug.log
+yarn.lock
+
+# Electron
+dist/
+out/
+
+# Build artifacts
+*.exe
+*.dmg
+*.AppImage
+
+# OS junk
+.DS_Store
+Thumbs.db
