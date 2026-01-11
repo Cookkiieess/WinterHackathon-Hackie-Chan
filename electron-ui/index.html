@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Workspace</title>
+  <style>
+    body {
+      margin: 0;
+      background: #020617;
+      color: white;
+      font-family: Arial;
+    }
+    #apps {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, 150px);
+      gap: 20px;
+      padding: 40px;
+    }
+    .app {
+      background: #1e293b;
+      padding: 20px;
+      text-align: center;
+      cursor: pointer;
+      border-radius: 10px;
+    }
+    .app:hover {
+      background: #334155;
+    }
+  </style>
+</head>
+<body>
+  <h2 style="padding:20px">Classroom Workspace</h2>
+  <div id="apps"></div>
+
+  <script src="renderer.js"></script>
+</body>
+</html>
