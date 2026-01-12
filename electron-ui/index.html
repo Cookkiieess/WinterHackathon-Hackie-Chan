@@ -28,9 +28,24 @@
   </style>
 </head>
 <body>
-  <h2 style="padding:20px">Classroom Workspace</h2>
-  <div id="apps"></div>
+  <!-- SIGNUP -->
+  <div id="signup" hidden></div>
+
+  <!-- WAITING SCREEN -->
+  <div id="waiting">
+    <h2>Waiting for teacher to start session…</h2>
+  </div>
+
+  <!-- SESSION OFFER -->
+  <div id="session-offer" hidden></div>
+
+  <!-- WORKSPACE -->
+  <div id="workspace" hidden>
+    <h2>Classroom Workspace</h2>
+    <div id="apps"></div>
+  </div>
 
   <script src="renderer.js"></script>
 </body>
+
 </html>
