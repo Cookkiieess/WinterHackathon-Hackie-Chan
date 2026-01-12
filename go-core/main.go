@@ -12,6 +12,29 @@ func withCORS(w http.ResponseWriter) {
 	w.Header().Set("Content-Type", "application/json")
 }
 
+// 🆕 NEW: Set allowed apps when session starts
+func setAppsHandler(w http.ResponseWriter, r *http.Request) {
+	withCORS(w)
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	defer r.Body.Close()
+
+	var req struct {
+		AllowedApps []string `json:"allowedApps"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+
+	log.Printf("Setting allowed apps: %v", req.AllowedApps)
+	StartSessionWithApps(req.AllowedApps)
+
+	json.NewEncoder(w).Encode(map[string]string{"status": "started"})
+}
+
 func startHandler(w http.ResponseWriter, r *http.Request) {
 	withCORS(w)
 	StartSession()
@@ -57,10 +80,21 @@ func launchHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// 🔒 CHECK: Is this app allowed?
+	if !isAppAllowed(req.AppID) {
+		log.Printf("App %s not allowed", req.AppID)
+		http.Error(w, "app not allowed", http.StatusForbidden)
+		return
+	}
+
+	// Find and launch the app
 	for _, app := range GetApps() {
-		if app.ID == req.AppID {
-			cmd := exec.Command(app.Cmd)
+		if app.ID == req.AppID && app.Allowed {
+			log.Printf("Launching app: %s (%s)", app.Name, app.Cmd)
+			// This uses 'sh -c' to ensure the command runs as if you typed it in terminal
+			cmd := exec.Command("sh", "-c", app.Cmd)
 			if err := cmd.Start(); err != nil {
+				log.Printf("Failed to launch %s: %v", app.Name, err)
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 				return
 			}
@@ -69,7 +103,7 @@ func launchHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	http.Error(w, "app not allowed", http.StatusForbidden)
+	http.Error(w, "app not found", http.StatusNotFound)
 }
 
 func healthHandler(w http.ResponseWriter, r *http.Request) {
@@ -83,6 +117,7 @@ func main() {
 	http.HandleFunc("/status", statusHandler)
 	http.HandleFunc("/apps", appsHandler)
 	http.HandleFunc("/launch", launchHandler)
+	http.HandleFunc("/setApps", setAppsHandler) // 🆕 NEW
 	http.HandleFunc("/health", healthHandler)
 
 	log.Println("Go backend running on :7070")

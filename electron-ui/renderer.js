@@ -1,156 +1,155 @@
+// DOM Elements
 const signupDiv = document.getElementById("signup");
-const offerDiv = document.getElementById("session-offer");
 const waitingDiv = document.getElementById("waiting");
+const offerDiv = document.getElementById("session-offer");
 const workspaceDiv = document.getElementById("workspace");
-
-let wasActive = false;
 const appsDiv = document.getElementById("apps");
+const identityDisplay = document.getElementById("student-identity");
 
-// Set up signup listener FIRST
-window.api.onShowSignup(() => {
-  console.log("SHOW_SIGNUP event received");
-  showSignup();
-});
+// 🆕 New Exit Buttons
+const exitWaitingBtn = document.getElementById("exit-waiting-btn");
+const exitAppBtn = document.getElementById("exit-app-btn");
 
-// Set up session offer listener
-window.api.onSessionOffer((offer) => {
-  console.log("Renderer received session offer:", offer);
-  showOffer(offer);
-});
-
-// Check student status after listeners are set up
+// --- 1. INITIALIZATION ---
 (async () => {
   const student = await window.api.getStudent();
-  console.log("Student data:", student);
-  
-  if (!student) {
-    // If no student, show signup immediately
+  console.log("Loaded Student:", student);
+
+  if (!student || !student.usn) {
     showSignup();
   } else {
-    // If student exists, show waiting screen
+    // Identity loaded - show waiting screen
+    if(identityDisplay) identityDisplay.innerText = `Logged in as: ${student.name} (${student.usn})`;
     showWaiting();
   }
 })();
 
+// --- 2. VIEW SWITCHING FUNCTIONS ---
+
+function hideAll() {
+  signupDiv.classList.add("hidden");
+  waitingDiv.classList.add("hidden");
+  offerDiv.classList.add("hidden");
+  workspaceDiv.classList.add("hidden");
+}
+
+function showSignup() {
+  hideAll();
+  signupDiv.classList.remove("hidden");
+}
+
+function showWaiting() {
+  hideAll();
+  waitingDiv.classList.remove("hidden");
+  // Show exit button while waiting (not in lockdown)
+  if (exitWaitingBtn) exitWaitingBtn.classList.remove("hidden");
+}
+
+function showWorkspace() {
+  hideAll();
+  workspaceDiv.classList.remove("hidden");
+  // 🔒 Hide exit button during active session (Lockdown)
+  if (exitAppBtn) exitAppBtn.classList.add("hidden");
+  renderApps(); 
+}
+
+// --- 3. EVENT LISTENERS ---
+
+// Handle Exit Buttons (Calls the emergencyExit in main.js)
+const handleExit = () => {
+  window.api.emergencyExit();
+};
+
+if (exitWaitingBtn) exitWaitingBtn.onclick = handleExit;
+if (exitAppBtn) exitAppBtn.onclick = handleExit;
+
+// Handle Signup Logic
+document.getElementById("signup-btn").addEventListener("click", () => {
+  const usn = document.getElementById("usn-input").value;
+  const name = document.getElementById("name-input").value;
+  
+  if(usn && name) {
+    window.api.submitSignup({ usn, name });
+    if(identityDisplay) identityDisplay.innerText = `Logged in as: ${name} (${usn})`;
+    showWaiting();
+  } else {
+    alert("Please fill in all fields");
+  }
+});
+
+// Handle Incoming Session Offer
+window.api.onSessionOffer((offer) => {
+  console.log("🔔 Offer Received:", offer);
+  
+  offerDiv.innerHTML = `
+    <div class="offer-card">
+      <h2>📚 Class Started</h2>
+      <p><strong>Teacher:</strong> ${offer.teacherName}</p>
+      <p><strong>Duration:</strong> ${offer.duration} mins</p>
+      <p><strong>Allowed Apps:</strong> ${offer.allowedApps.length > 0 ? offer.allowedApps.join(", ") : "None"}</p>
+      
+      <div class="btn-group">
+        <button id="btn-accept" class="btn-accept">Join Session</button>
+        <button id="btn-decline" class="btn-decline">Decline</button>
+      </div>
+    </div>
+  `;
+
+  offerDiv.classList.remove("hidden");
+
+  document.getElementById("btn-accept").onclick = () => {
+    window.api.acceptSession(offer);
+    // Lockdown triggered automatically by main.js via UDP listener
+    showWorkspace();
+  };
+
+  document.getElementById("btn-decline").onclick = () => {
+    window.api.declineSession();
+    showWaiting();
+  };
+});
+
+// Handle Session End (Teacher stopped it)
+window.api.onSessionEnd(() => {
+  console.log("Session ended by teacher");
+  
+  // 1. Exit Fullscreen UI side
+  window.api.toggleFullscreen(false); 
+  
+  // 2. Alert the student
+  alert("The teacher has ended the session. You may now close the application.");
+  
+  // 3. 🔓 Reveal the Exit Button in the header
+  if (exitAppBtn) {
+    exitAppBtn.classList.remove("hidden");
+  }
+  
+  // Note: We stay in Workspace view so they can see their work, 
+  // but they can now use Alt+Tab or click Exit.
+});
+
+// --- 4. RENDER APPS ---
 async function renderApps() {
   const apps = await window.api.getApps();
   appsDiv.innerHTML = "";
 
-  for (const app of apps) {
+  if (!apps || apps.length === 0) {
+    appsDiv.innerHTML = "<p>No apps available. Ensure Go Backend is running.</p>";
+    return;
+  }
+
+  apps.forEach(app => {
     const div = document.createElement("div");
-    div.className = "app";
-    div.innerText = app.name;
-
-    div.onclick = () => window.api.launchApp(app.id);
+    div.className = app.allowed ? "app" : "app app-disabled";
+    div.innerHTML = `
+      <div class="app-icon">${app.icon || '📱'}</div>
+      <div class="app-name">${app.name}</div>
+    `;
+    
+    if (app.allowed) {
+      div.onclick = () => window.api.launchApp(app.id);
+    }
+    
     appsDiv.appendChild(div);
-  }
-}
-
-async function pollSession() {
-  try {
-    const status = await window.api.getStatus();
-
-    if (!wasActive && status.active) {
-      renderApps();
-    }
-
-    if (wasActive && !status.active) {
-      window.api.raiseWorkspace();
-      appsDiv.innerHTML = "";
-    }
-
-    wasActive = status.active;
-  } catch (e) {
-    console.error(e);
-  }
-}
-
-setInterval(pollSession, 1000);
-pollSession();
-
-document.addEventListener("keydown", (e) => {
-  if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === "q") {
-    window.api.emergencyExit();
-  }
-});
-
-function showSignup() {
-  console.log("Showing signup form");
-  signupDiv.hidden = false;
-  waitingDiv.hidden = true;
-  offerDiv.hidden = true;
-  workspaceDiv.hidden = true;
-  
-  signupDiv.innerHTML = `
-    <div style="padding: 40px; max-width: 400px; margin: 0 auto;">
-      <h3>Student Registration</h3>
-      <input id="name" placeholder="Name" style="width: 100%; padding: 10px; margin: 10px 0;"><br>
-      <input id="usn" placeholder="USN" style="width: 100%; padding: 10px; margin: 10px 0;"><br>
-      <input id="section" placeholder="Section" style="width: 100%; padding: 10px; margin: 10px 0;"><br>
-      <button id="register" style="padding: 10px 20px; margin-top: 10px; cursor: pointer;">Register</button>
-    </div>
-  `;
-
-  document.getElementById("register").onclick = () => {
-    const student = {
-      name: document.getElementById("name").value.trim(),
-      usn: document.getElementById("usn").value.trim(),
-      section: document.getElementById("section").value.trim(),
-    };
-
-    if (!student.name || !student.usn || !student.section) {
-      alert("Please fill in all fields");
-      return;
-    }
-
-    console.log("Submitting signup:", student);
-    window.api.submitSignup(student);
-    showWaiting();
-  };
-}
-
-function showOffer(offer) {
-  console.log("Showing offer");
-  waitingDiv.hidden = true;
-  offerDiv.hidden = false;
-  workspaceDiv.hidden = true;
-  signupDiv.hidden = true;
-
-  offerDiv.innerHTML = `
-    <div style="padding: 40px; max-width: 400px; margin: 0 auto;">
-      <h3>Session Available</h3>
-      <p><b>Teacher:</b> ${offer.teacher}</p>
-      <p><b>Section:</b> ${offer.section}</p>
-      <button id="accept" style="padding: 10px 20px; margin: 10px 5px; cursor: pointer; background: #10b981; color: white; border: none; border-radius: 5px;">Accept</button>
-      <button id="decline" style="padding: 10px 20px; margin: 10px 5px; cursor: pointer; background: #ef4444; color: white; border: none; border-radius: 5px;">Decline</button>
-    </div>
-  `;
-
-  document.getElementById("accept").onclick = () => {
-    console.log("Session accepted");
-    window.api.acceptSession(offer);
-    showWorkspace();
-  };
-
-  document.getElementById("decline").onclick = () => {
-    console.log("Session declined");
-    window.api.declineSession();
-    showWaiting();
-  };
-}
-
-function showWorkspace() {
-  console.log("Showing workspace");
-  waitingDiv.hidden = true;
-  offerDiv.hidden = true;
-  workspaceDiv.hidden = false;
-  signupDiv.hidden = true;
-}
-
-function showWaiting() {
-  console.log("Showing waiting screen");
-  waitingDiv.hidden = false;
-  offerDiv.hidden = true;
-  workspaceDiv.hidden = true;
-  signupDiv.hidden = true;
+  });
 }
