@@ -1,13 +1,14 @@
 const { app, BrowserWindow, ipcMain } = require("electron");
 const path = require("path");
+let listenerStarted = false;
 
-const { listen } = require("./net/udpListener");
-const { joinSession } = require("./net/wsClient");
+const { listen, acceptOffer, declineOffer } = require("./net/udpListener");
 const { loadStudent, saveStudent } = require("./data/storage");
 
 let win;
 let allowClose = false;
 let student = null;
+let currentOffer = null; // 🆕 Store current offer
 
 function createWindow() {
   win = new BrowserWindow({
@@ -28,27 +29,24 @@ function createWindow() {
     if (!allowClose) e.preventDefault();
   });
 
-  // 👇 LOAD STUDENT
   student = loadStudent();
   console.log("Loaded student:", student);
 
   if (!student) {
-    // Send SHOW_SIGNUP after page loads
     win.webContents.once("did-finish-load", () => {
       console.log("Sending SHOW_SIGNUP");
       win.webContents.send("SHOW_SIGNUP");
     });
   } else {
-    // Start listening if student exists
     win.webContents.once("did-finish-load", () => {
       startListening();
     });
   }
 }
 
-// 2️⃣ ENTER LOCK MODE (STEP 2)
 function enterLockMode() {
   if (!win) return;
+  console.log("🔒 Entering lock mode");
   win.setKiosk(true);
   win.setFullScreen(true);
   win.setAlwaysOnTop(true, "screen-saver");
@@ -57,9 +55,9 @@ function enterLockMode() {
   win.focus();
 }
 
-// 3️⃣ EXIT LOCK MODE (STEP 3)
 function exitLockMode() {
   if (!win) return;
+  console.log("🔓 Exiting lock mode");
   win.setKiosk(false);
   win.setAlwaysOnTop(false);
   win.setFullScreen(false);
@@ -67,14 +65,51 @@ function exitLockMode() {
 }
 
 function startListening() {
-  console.log("Starting UDP listener for section:", student.section);
-  listen(student.section, (offer) => {
-    console.log("Received offer, sending to renderer:", offer);
-    win.webContents.send("SESSION_OFFER", offer);
-  });
+  if (listenerStarted) return;
+  listenerStarted = true;
+
+  console.log("Starting UDP listener");
+
+  listen(
+    // 🆕 Callback 1: When offer is received
+    (offer) => {
+      console.log("📩 Session offer received:", offer);
+      currentOffer = offer;
+      win.webContents.send("SESSION_OFFER", offer);
+    },
+    
+    // Callback 2: When session actually starts
+    (sessionData) => {
+      console.log("✅ Session started:", sessionData);
+      win.webContents.send("SESSION_STARTED", sessionData);
+      enterLockMode();
+    },
+    
+    // Callback 3: When session ends
+    (kicked) => {
+      console.log("❌ Session ended. Kicked:", kicked);
+      exitLockMode();
+      currentOffer = null;
+      win.webContents.send("SESSION_ENDED", { kicked });
+    }
+  );
 }
 
-// Workspace controls (unchanged)
+// 🆕 Handle accept from renderer
+ipcMain.on("ACCEPT_SESSION", (event, offer) => {
+  console.log("Student accepted session");
+  acceptOffer(offer || currentOffer);
+  // Don't enter lock mode yet - wait for SESSION_START from teacher
+});
+
+// 🆕 Handle decline from renderer
+ipcMain.on("DECLINE_SESSION", () => {
+  console.log("Student declined session");
+  declineOffer();
+  currentOffer = null;
+});
+
+// Workspace controls
 ipcMain.on("LOWER_WORKSPACE", () => {
   if (!win) return;
   win.setAlwaysOnTop(false, "normal");
@@ -91,19 +126,6 @@ ipcMain.on("EMERGENCY_EXIT", () => {
   app.exit(0);
 });
 
-// 👇 SESSION JOIN HANDLERS
-ipcMain.on("ACCEPT_SESSION", (_, offer) => {
-  console.log("Session accepted, joining:", offer);
-  enterLockMode(); // Lock the window when session is accepted
-  joinSession(offer, student);
-});
-
-ipcMain.on("DECLINE_SESSION", () => {
-  console.log("Session declined");
-  // intentionally empty
-});
-
-// 👇 AFTER SIGNUP
 ipcMain.on("STUDENT_REGISTERED", (_, data) => {
   console.log("Student registered:", data);
   saveStudent(data);
