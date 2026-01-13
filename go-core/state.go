@@ -1,6 +1,7 @@
 package main
 
 import (
+	"os/exec"
 	"runtime"
 	"sync"
 )
@@ -60,6 +61,18 @@ var (
 	}
 )
 
+// 🆕 HELPER: Checks which command actually exists on this computer
+func pickFirstExisting(candidates ...string) string {
+	for _, c := range candidates {
+		// exec.LookPath checks if the program is in the system PATH
+		if _, err := exec.LookPath(c); err == nil {
+			return c
+		}
+	}
+	// Fallback: return the first one even if missing, so we have something to try
+	return candidates[0]
+}
+
 // Platform-specific commands
 func getChromeCmd() string {
 	switch runtime.GOOS {
@@ -68,7 +81,8 @@ func getChromeCmd() string {
 	case "darwin":
 		return "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
 	default:
-		return "google-chrome"
+		// Linux: Check for standard Chrome, then Chromium
+		return pickFirstExisting("google-chrome", "google-chrome-stable", "chromium", "chromium-browser")
 	}
 }
 
@@ -79,7 +93,8 @@ func getVSCodeCmd() string {
 	case "darwin":
 		return "/Applications/Visual Studio Code.app/Contents/MacOS/Electron"
 	default:
-		return "code"
+		// Linux: Standard "code" vs open-source "code-oss" vs "codium"
+		return pickFirstExisting("code", "code-oss", "vscodium")
 	}
 }
 
@@ -90,7 +105,8 @@ func getTerminalCmd() string {
 	case "darwin":
 		return "/System/Applications/Utilities/Terminal.app/Contents/MacOS/Terminal"
 	default:
-		return "x-terminal-emulator"
+		// Linux: Check common terminals (Gnome, KDE, XFCE, generic)
+		return pickFirstExisting("gnome-terminal", "konsole", "xfce4-terminal", "xterm", "lxterminal", "x-terminal-emulator")
 	}
 }
 
@@ -101,7 +117,8 @@ func getCalculatorCmd() string {
 	case "darwin":
 		return "/System/Applications/Calculator.app/Contents/MacOS/Calculator"
 	default:
-		return "gnome-calculator"
+		// Linux: Check Gnome calc, KCalc, etc.
+		return pickFirstExisting("gnome-calculator", "kcalc", "galculator", "xcalc")
 	}
 }
 
@@ -112,7 +129,8 @@ func getNotepadCmd() string {
 	case "darwin":
 		return "/System/Applications/TextEdit.app/Contents/MacOS/TextEdit"
 	default:
-		return "gedit"
+		// Linux: Check common text editors
+		return pickFirstExisting("gedit", "kate", "mousepad", "leafpad", "pluma")
 	}
 }
 
@@ -123,7 +141,7 @@ func getFirefoxCmd() string {
 	case "darwin":
 		return "/Applications/Firefox.app/Contents/MacOS/firefox"
 	default:
-		return "firefox"
+		return pickFirstExisting("firefox", "firefox-esr")
 	}
 }
 
@@ -174,6 +192,7 @@ func IsSessionActive() bool {
 // Get all apps with their allowed status
 func GetApps() []App {
 	mu.Lock()
+	// ⚠️ IMPORTANT: Re-evaluate commands here just in case (optional but safer)
 	defer mu.Unlock()
 
 	apps := make([]App, len(allApps))

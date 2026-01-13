@@ -4,7 +4,9 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
+	"os" // <--- Added for debug logging (Stdout/Stderr)
 	"os/exec"
+	"runtime" // <--- Added to detect Windows vs Linux
 )
 
 func withCORS(w http.ResponseWriter) {
@@ -91,13 +93,39 @@ func launchHandler(w http.ResponseWriter, r *http.Request) {
 	for _, app := range GetApps() {
 		if app.ID == req.AppID && app.Allowed {
 			log.Printf("Launching app: %s (%s)", app.Name, app.Cmd)
-			// This uses 'sh -c' to ensure the command runs as if you typed it in terminal
-			cmd := exec.Command("sh", "-c", app.Cmd)
+
+			var cmd *exec.Cmd
+
+			// 🔧 PLATFORM FIX: Run commands correctly based on OS
+			if runtime.GOOS == "windows" {
+				// Windows: Run directly to handle paths with spaces correctly
+				// If it's the "terminal" app, we need special magic to make the window appear
+				if app.ID == "terminal" {
+					cmd = exec.Command("cmd", "/c", "start")
+				} else {
+					cmd = exec.Command(app.Cmd)
+				}
+			} else {
+				// Linux/Mac: Use 'sh -c' to handle environment variables and shell expansion safely
+				cmd = exec.Command("sh", "-c", app.Cmd)
+			}
+
+			// 🐛 DEBUGGING FIX: Connect app output to your server terminal
+			// If Chrome crashes or is missing, you will see the error in YOUR Go terminal now.
+			cmd.Stdout = os.Stdout
+			cmd.Stderr = os.Stderr
+
 			if err := cmd.Start(); err != nil {
 				log.Printf("Failed to launch %s: %v", app.Name, err)
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 				return
 			}
+
+			// Release the process resource so it doesn't zombie or close when the server closes
+			go func() {
+				_ = cmd.Process.Release()
+			}()
+
 			json.NewEncoder(w).Encode(map[string]string{"launched": app.ID})
 			return
 		}
@@ -117,7 +145,7 @@ func main() {
 	http.HandleFunc("/status", statusHandler)
 	http.HandleFunc("/apps", appsHandler)
 	http.HandleFunc("/launch", launchHandler)
-	http.HandleFunc("/setApps", setAppsHandler) // 🆕 NEW
+	http.HandleFunc("/setApps", setAppsHandler)
 	http.HandleFunc("/health", healthHandler)
 
 	log.Println("Go backend running on :7070")
