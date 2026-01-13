@@ -44,7 +44,6 @@ Steps to run the project locally:
 
 5. Run the Electron application  
 
-## Team Members
-- Vernon Dantes  
-- Team Member 2  
-- Team Member 3
+## Team Members and Roles
+- Vernon Christopher Dantes - Student side UI, system and app lock
+- Stalon Joyal Dsouza - Teacher Side UI and Communication & protocols
